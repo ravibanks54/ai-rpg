@@ -5,6 +5,7 @@ const player: RpgPlayerHooks = {
         player.name = 'YourName'
         player.setGraphic('hero')
         player.setComponentsTop(Components.text('{name}'))
+        player.speed = 5 // Increased player speed
     },
     onInput(player: RpgPlayer, { input }) {
         if (input == Control.Back) {
