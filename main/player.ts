@@ -1,8 +1,9 @@
 import { RpgPlayer, type RpgPlayerHooks, Control, Components } from '@rpgjs/server'
 
 const player: RpgPlayerHooks = {
-    onConnected(player: RpgPlayer) {
+    async onConnected(player: RpgPlayer) {
         player.name = 'YourName'
+        player.setGraphic('hero')
         player.setComponentsTop(Components.text('{name}'))
     },
     onInput(player: RpgPlayer, { input }) {
@@ -11,6 +12,13 @@ const player: RpgPlayerHooks = {
         }
     },
     async onJoinMap(player: RpgPlayer) {
+        // Set spawn position (original start point coordinates from the map)
+        if (!player.getVariable('SPAWN_SET')) {
+            player.position.x = 376
+            player.position.y = 217
+            player.setVariable('SPAWN_SET', true)
+        }
+        
         if (player.getVariable('AFTER_INTRO')) {
             return
         }

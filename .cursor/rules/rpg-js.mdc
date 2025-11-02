@@ -1,0 +1,286 @@
+---
+alwaysApply: true
+---
+
+# RPGJS Development Rules
+
+## Project Structure
+
+RPGJS uses a modular architecture where code is organized in modules. The main module (configured in `rpg.toml`) typically contains:
+
+- **`player.ts`**: Player hooks and player-related logic (server-side)
+- **`events/`**: NPCs and interactive events (server-side)
+- **`spritesheets/`**: Graphic resources and spritesheet definitions (client-side)
+- **`worlds/`**: Maps (`.tmx` files) and world configuration (`.world` files)
+
+## Player Hooks (`RpgPlayerHooks`)
+
+Player logic is defined in `player.ts` using the `RpgPlayerHooks` interface. Key lifecycle hooks:
+
+- **`onConnected(player: RpgPlayer)`**: Called when player connects. Initialize player properties, set name, add UI components.
+- **`onInput(player: RpgPlayer, { input })`**: Handle player input (keyboard, gamepad). Use `Control` enum for inputs.
+- **`onJoinMap(player: RpgPlayer)`**: Called when player enters a map. Use for map-specific initialization, cutscenes, tutorials.
+- **`onDead(player: RpgPlayer)`**: Called when player dies.
+- **`onLevelUp(player: RpgPlayer)`**: Called when player levels up.
+
+Example:
+
+```typescript
+import {
+  RpgPlayer,
+  type RpgPlayerHooks,
+  Control,
+  Components,
+} from "@rpgjs/server";
+
+const player: RpgPlayerHooks = {
+  onConnected(player: RpgPlayer) {
+    player.name = "PlayerName";
+    player.setComponentsTop(Components.text("{name}"));
+  },
+  onInput(player: RpgPlayer, { input }) {
+    if (input == Control.Back) {
+      player.callMainMenu();
+    }
+  },
+  async onJoinMap(player: RpgPlayer) {
+    // Map initialization logic
+  },
+};
+
+export default player;
+```
+
+## Events and NPCs (`RpgEvent`)
+
+NPCs and interactive objects extend `RpgEvent`. Use the `@EventData` decorator for configuration:
+
+- **`name`**: Event identifier (used in map editors like Tiled)
+- **`hitbox`**: Collision box (`{ width, height }`)
+- **`graphic`**: Visual representation (set in `onInit()` or via `setGraphic()`)
+
+Key methods:
+
+- **`onInit()`**: Initialize the event (set graphics, position, etc.)
+- **`async onAction(player: RpgPlayer)`**: Called when player interacts with the event
+- **`async onChanges(player: RpgPlayer)`**: Called when player touches/collides with the event
+
+Example for AI-powered NPC:
+
+```typescript
+import { RpgEvent, EventData, RpgPlayer } from "@rpgjs/server";
+
+@EventData({
+  name: "AI-NPC",
+  hitbox: {
+    width: 32,
+    height: 32,
+  },
+})
+export default class AINPCEvent extends RpgEvent {
+  onInit() {
+    this.setGraphic("female"); // or your custom graphic
+  }
+
+  async onAction(player: RpgPlayer) {
+    // Integrate AI agent here
+    const aiResponse = await this.getAIResponse(player);
+    await player.showText(aiResponse, {
+      talkWith: this,
+    });
+  }
+
+  private async getAIResponse(player: RpgPlayer): Promise<string> {
+    // Call your AI agent API/ service here
+    // Consider player context, conversation history, etc.
+    return "AI-generated response";
+  }
+}
+```
+
+## Maps and Worlds
+
+### Maps
+
+- Maps are created in **Tiled Map Editor** and saved as `.tmx` files
+- Place `.tmx` files in `main/worlds/maps/`
+- Events are placed on maps in Tiled using the event `name` from `@EventData`
+
+### Worlds
+
+World files (`.world`) define multiple maps and their connections:
+
+```json
+{
+  "maps": [
+    {
+      "fileName": "maps/simplemap.tmx",
+      "height": 640,
+      "width": 800,
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "onlyShowAdjacentMaps": false,
+  "type": "world"
+}
+```
+
+## Spritesheets
+
+Client-side graphics are defined with the `@Spritesheet` decorator:
+
+```typescript
+import { Spritesheet, Presets } from "@rpgjs/client";
+
+const { RMSpritesheet } = Presets;
+
+@Spritesheet({
+  ...RMSpritesheet(3, 4), // 3 columns, 4 rows
+  images: ["./characters/hero.png"],
+})
+export default class Characters {}
+```
+
+## Configuration (`rpg.toml`)
+
+Main game configuration:
+
+```toml
+name = 'My Game'
+
+modules = [
+    './main',
+    '@rpgjs/mobile-gui',
+    '@rpgjs/default-gui',
+    '@rpgjs/gamepad'
+]
+
+[start]
+    map = 'simplemap'
+    graphic = 'hero'
+    hitbox = [16, 16]
+```
+
+## AI Agent Integration Patterns
+
+For NPCs powered by AI agents:
+
+1. **State Management**: Store conversation history, player context, and NPC state using `player.setVariable()` and `player.getVariable()`
+2. **Async Operations**: All AI interactions should be async. Use `await` when calling AI APIs
+3. **Context Passing**: Pass relevant game state to AI (player name, location, inventory, quest progress)
+4. **Error Handling**: Always handle AI API failures gracefully with fallback responses
+5. **Rate Limiting**: Implement rate limiting for AI calls to prevent abuse
+6. **Caching**: Consider caching AI responses for common interactions
+
+Example pattern:
+
+```typescript
+@EventData({ name: "AI-Villager", hitbox: { width: 32, height: 32 } })
+export default class AIVillager extends RpgEvent {
+  private conversationHistory: Array<{ role: string; content: string }> = [];
+
+  onInit() {
+    this.setGraphic("female");
+  }
+
+  async onAction(player: RpgPlayer) {
+    const context = this.buildContext(player);
+    const response = await this.callAIAgent(context);
+    await player.showText(response, { talkWith: this });
+  }
+
+  private buildContext(player: RpgPlayer) {
+    return {
+      playerName: player.name,
+      location: player.getCurrentMap(),
+      questProgress: player.getVariable("questProgress"),
+      conversationHistory: this.conversationHistory,
+    };
+  }
+
+  private async callAIAgent(context: any): Promise<string> {
+    try {
+      // Implement your AI agent call here
+      // Update conversation history
+      return "AI response";
+    } catch (error) {
+      console.error("AI agent error:", error);
+      return "I'm having trouble understanding right now. Can we try again?";
+    }
+  }
+}
+```
+
+## Best Practices
+
+1. **Separation of Concerns**: Keep server logic (events, player hooks) separate from client logic (spritesheets, GUI)
+2. **Type Safety**: Always use TypeScript types from `@rpgjs/server` and `@rpgjs/client`
+3. **Async/Await**: Use async/await for all player interactions (`showText`, `showChoices`, etc.)
+4. **Variable Management**: Use `player.setVariable()` and `player.getVariable()` for persistent state, not direct properties
+5. **Error Handling**: Always wrap AI calls and external APIs in try-catch blocks
+6. **Modular Events**: Create separate event files for different NPC types
+7. **Graphics Naming**: Keep graphic names consistent and reference them in both spritesheet definitions and event `setGraphic()` calls
+8. **Map Organization**: Organize maps logically in the `worlds/maps/` directory
+9. **Component System**: Use `Components` from `@rpgjs/server` for UI elements (text, image, etc.)
+10. **Input Handling**: Always check for `Control` enum values in `onInput` for cross-platform compatibility
+
+## Common Patterns
+
+### Dialog System
+
+```typescript
+async onAction(player: RpgPlayer) {
+    const choice = await player.showChoices('What would you like?', [
+        { text: 'Talk', value: 'talk' },
+        { text: 'Trade', value: 'trade' },
+        { text: 'Leave', value: 'leave' }
+    ])
+
+    switch (choice?.value) {
+        case 'talk':
+            await this.handleTalk(player)
+            break
+        case 'trade':
+            await this.handleTrade(player)
+            break
+    }
+}
+```
+
+### Player Variables
+
+```typescript
+// Set variable
+player.setVariable("questStarted", true);
+player.setVariable("npcMet", ["villager1", "villager2"]);
+
+// Get variable
+const questStarted = player.getVariable("questStarted");
+const npcsMet = player.getVariable("npcMet") || [];
+```
+
+### Map Transitions
+
+```typescript
+// Change map
+player.changeMap("mapName", { x: 100, y: 100 });
+
+// Get current map
+const currentMap = player.getCurrentMap();
+```
+
+## Development Workflow
+
+1. **Maps**: Edit `.tmx` files in Tiled Map Editor
+2. **Events**: Create TypeScript event files in `main/events/`
+3. **Player Logic**: Modify `main/player.ts` for player-specific behavior
+4. **Graphics**: Add images to `main/spritesheets/` and define in TypeScript
+5. **Configuration**: Update `rpg.toml` for game settings and modules
+6. **Testing**: Use `npm run dev` to test changes (hot reload supported)
+
+## Resources
+
+- Official Documentation: https://docs.rpgjs.dev
+- Community Help: https://community.rpgjs.dev
+- API Reference: Check `@rpgjs/server` and `@rpgjs/client` type definitions
